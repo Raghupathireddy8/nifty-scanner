@@ -1,7 +1,8 @@
-name: Run Scanner
+name: Nifty Scanner
 
 on:
   schedule:
+    # Runs every 15 minutes during market hours (IST 9:15–15:30)
     - cron: "*/15 4-10 * * 1-5"
   workflow_dispatch:
 
@@ -10,25 +11,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      # 1. Get your repo code
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - uses: actions/setup-python@v4
+      # 2. Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
-      - run: pip install fyers-apiv3 pandas numpy requests
+      # 3. Install required libraries
+      - name: Install dependencies
+        run: |
+          pip install fyers-apiv3 pandas numpy requests
 
-      - run: python nifty_github.py
+      # 4. Run your scanner
+      - name: Run Scanner
+        run: python nifty_github.py
         env:
           FYERS_CLIENT_ID: ${{ secrets.FYERS_CLIENT_ID }}
           FYERS_ACCESS_TOKEN: ${{ secrets.FYERS_ACCESS_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
-      - name: Commit cache
+      # 5. Save signals cache (VERY IMPORTANT)
+      - name: Commit signals cache
         run: |
-          git config --global user.name "bot"
-          git config --global user.email "bot@github.com"
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
           git add signals.json
           git commit -m "update signals cache" || echo "no changes"
           git push
