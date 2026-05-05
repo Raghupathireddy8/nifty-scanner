@@ -62,7 +62,7 @@ NIFTY100 = ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","SBIN","ITC","LT","KO
 # ===== DATA =====
 def get_data(sym):
     end = datetime.today()
-    start = end - timedelta(days=120)
+    start = end - timedelta(days=300)
 
     r = fyers.history({
         "symbol": f"NSE:{sym}-EQ",
@@ -76,7 +76,8 @@ def get_data(sym):
     if r.get("s") != "ok":
         return None
 
-    return pd.DataFrame(r["candles"], columns=["t","o","h","l","c","v"])
+    df = pd.DataFrame(r["candles"], columns=["t","o","h","l","c","v"])
+    return df
 
 # ===== INDICATORS =====
 def zscore(df):
@@ -88,6 +89,7 @@ def adx(df):
     tr = pd.concat([(h-l),(h-c.shift()).abs(),(l-c.shift()).abs()],axis=1).max(axis=1)
     up = h.diff()
     dn = -l.diff()
+
     plus = np.where((up>dn)&(up>0), up, 0)
     minus = np.where((dn>up)&(dn>0), dn, 0)
 
@@ -99,9 +101,13 @@ def adx(df):
 
     return adx_val.iloc[-1], pdi.iloc[-1], mdi.iloc[-1]
 
+def calc_200dma(df):
+    if len(df) < 200:
+        return None
+    return df["c"].rolling(200).mean().iloc[-1]
+
 # ===== SIGNAL =====
 def generate_signal(z, adx_val, pdi, mdi):
-
     if z < -2 and adx_val > 20 and pdi > mdi:
         return "STRONG BUY"
     if z < -1:
@@ -114,61 +120,56 @@ def generate_signal(z, adx_val, pdi, mdi):
         return "TREND BUY" if pdi > mdi else "TREND SELL"
     return "HOLD"
 
-# ===== INTERPRETATION =====
+# ===== TREND TEXT =====
 def trend_text(adx_val, pdi, mdi):
     if adx_val < 20:
-        return "Sideways (Weak)"
+        return "Sideways"
     if pdi > mdi:
-        return "Bullish (Strong)" if adx_val > 25 else "Bullish"
+        return "Bullish Strong" if adx_val > 25 else "Bullish"
     else:
-        return "Bearish (Strong)" if adx_val > 25 else "Bearish"
+        return "Bearish Strong" if adx_val > 25 else "Bearish"
 
-def insight(sig, z, pdi, mdi):
-    if sig == "STRONG BUY":
-        return "Buyers in control + Oversold (Best Swing Setup)"
-    if sig == "BUY":
-        return "Mild oversold, watch for bounce"
-    if sig == "STRONG SELL":
-        return "Sellers strong + Overbought"
-    if sig == "SELL":
-        return "Overbought, possible pullback"
-    if sig == "TREND BUY":
-        return "Strong uptrend, but late entry risk"
-    if sig == "TREND SELL":
-        return "Downtrend, avoid buying"
-    return "No clear edge"
+# ===== 200 DMA SIGNAL =====
+def dma_signal(price, dma):
+    if not dma:
+        return "No Data"
+    if price > dma:
+        return "ABOVE 200 DMA 🟢"
+    else:
+        return "BELOW 200 DMA 🔴"
 
 # ===== MAIN =====
-print("🚀 Running Smart Swing Scanner...")
+print("🚀 Swing Scanner with 200 DMA...")
 
 for sym in NIFTY100:
     try:
         df = get_data(sym)
-        if df is None or len(df) < 30:
+        if df is None or len(df) < 200:
             continue
 
         price = df["c"].iloc[-1]
         z = zscore(df).iloc[-1]
         adx_val, pdi, mdi = adx(df)
+        dma = calc_200dma(df)
 
         sig = generate_signal(z, adx_val, pdi, mdi)
 
         if sig != "HOLD" and not is_duplicate(sym, sig):
 
             trend = trend_text(adx_val, pdi, mdi)
-            note = insight(sig, z, pdi, mdi)
+            dma_txt = dma_signal(price, dma)
 
             msg = f"""
 <b>{sig} : {sym}</b>
 
 💰 Price: ₹{price:.2f}
+📉 200 DMA: ₹{dma:.2f} | {dma_txt}
+
 📊 Z-Score: {z:.2f}
 
 📈 Trend: {trend}
 ADX: {adx_val:.1f}
 DI+: {pdi:.1f} | DI-: {mdi:.1f}
-
-🧠 Insight: {note}
 
 🕐 {datetime.now().strftime('%H:%M')}
 """
