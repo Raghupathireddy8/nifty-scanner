@@ -9,13 +9,10 @@ FYERS_ACCESS_TOKEN = os.getenv("FYERS_ACCESS_TOKEN")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID")
 
-if not all([FYERS_CLIENT_ID, FYERS_ACCESS_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
-    raise Exception("Missing secrets")
-
 CACHE_FILE = "signals.json"
 TODAY = datetime.now().strftime("%Y-%m-%d")
 
-# ===== LOAD CACHE =====
+# ===== CACHE =====
 def load_cache():
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "r") as f:
@@ -28,23 +25,19 @@ def save_cache(cache):
 
 cache = load_cache()
 
+def is_duplicate(symbol, signal):
+    key = f"{symbol}_{signal}"
+    return key in cache and cache[key] == TODAY
+
+def mark_sent(symbol, signal):
+    cache[f"{symbol}_{signal}"] = TODAY
+
 # ===== TELEGRAM =====
 def send(msg):
     requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
         json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}
     )
-
-# ===== DUPLICATE CHECK =====
-def is_duplicate(symbol, signal):
-    key = f"{symbol}_{signal}"
-    if key in cache and cache[key] == TODAY:
-        return True
-    return False
-
-def mark_sent(symbol, signal):
-    key = f"{symbol}_{signal}"
-    cache[key] = TODAY
 
 # ===== FYERS =====
 from fyers_apiv3 import fyersModel
@@ -108,6 +101,7 @@ def adx(df):
 
 # ===== SIGNAL =====
 def generate_signal(z, adx_val, pdi, mdi):
+
     if z < -2 and adx_val > 20 and pdi > mdi:
         return "STRONG BUY"
     if z < -1:
@@ -120,8 +114,32 @@ def generate_signal(z, adx_val, pdi, mdi):
         return "TREND BUY" if pdi > mdi else "TREND SELL"
     return "HOLD"
 
+# ===== INTERPRETATION =====
+def trend_text(adx_val, pdi, mdi):
+    if adx_val < 20:
+        return "Sideways (Weak)"
+    if pdi > mdi:
+        return "Bullish (Strong)" if adx_val > 25 else "Bullish"
+    else:
+        return "Bearish (Strong)" if adx_val > 25 else "Bearish"
+
+def insight(sig, z, pdi, mdi):
+    if sig == "STRONG BUY":
+        return "Buyers in control + Oversold (Best Swing Setup)"
+    if sig == "BUY":
+        return "Mild oversold, watch for bounce"
+    if sig == "STRONG SELL":
+        return "Sellers strong + Overbought"
+    if sig == "SELL":
+        return "Overbought, possible pullback"
+    if sig == "TREND BUY":
+        return "Strong uptrend, but late entry risk"
+    if sig == "TREND SELL":
+        return "Downtrend, avoid buying"
+    return "No clear edge"
+
 # ===== MAIN =====
-print("🚀 Running scan with duplicate filter...")
+print("🚀 Running Smart Swing Scanner...")
 
 for sym in NIFTY100:
     try:
@@ -137,17 +155,32 @@ for sym in NIFTY100:
 
         if sig != "HOLD" and not is_duplicate(sym, sig):
 
-            msg = f"{sym} → {sig} | ₹{price:.2f} | Z:{z:.2f} | ADX:{adx_val:.1f}"
-            send(msg)
+            trend = trend_text(adx_val, pdi, mdi)
+            note = insight(sig, z, pdi, mdi)
 
+            msg = f"""
+<b>{sig} : {sym}</b>
+
+💰 Price: ₹{price:.2f}
+📊 Z-Score: {z:.2f}
+
+📈 Trend: {trend}
+ADX: {adx_val:.1f}
+DI+: {pdi:.1f} | DI-: {mdi:.1f}
+
+🧠 Insight: {note}
+
+🕐 {datetime.now().strftime('%H:%M')}
+"""
+
+            send(msg)
             mark_sent(sym, sig)
-            print("Sent:", msg)
+            print("Sent:", sym, sig)
 
         time.sleep(0.25)
 
     except Exception as e:
         print(sym, e)
 
-# ===== SAVE CACHE =====
 save_cache(cache)
 print("✅ Done")
