@@ -24,3 +24,11 @@ jobs:
           FYERS_ACCESS_TOKEN: ${{ secrets.FYERS_ACCESS_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Commit cache
+        run: |
+          git config --global user.name "bot"
+          git config --global user.email "bot@github.com"
+          git add signals.json
+          git commit -m "update signals cache" || echo "no changes"
+          git push
